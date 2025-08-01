@@ -17,6 +17,12 @@ export interface SavedChartCode {
   [chartId: string]: string;
 }
 
+export interface ChartConfiguration {
+  data: string;
+  transformationLogic: string;
+  generatedCode?: string;
+}
+
 export interface EcoreModel {
   name: string;
   elements: EcoreElement[];
