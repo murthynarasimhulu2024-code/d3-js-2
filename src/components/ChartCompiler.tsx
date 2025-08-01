@@ -4,7 +4,7 @@ import Editor from '@monaco-editor/react';
 import { ChartType } from '../types/chart';
 import ChartRenderer from './ChartRenderer';
 import EcoreConverter from './EcoreConverter';
-import { codeStorage } from '../services/codeStorage';
+import { HybridStorage } from '../services/hybridStorage';
 
 interface ChartCompilerProps {
   selectedChart: ChartType | null;
@@ -70,26 +70,72 @@ const chart = svg.node();`;
 const ChartCompiler: React.FC<ChartCompilerProps> = ({ selectedChart }) => {
   const [code, setCode] = useState(() => {
     if (selectedChart) {
-      const savedCode = codeStorage.getCode(selectedChart.id);
-      return savedCode || defaultBarChartCode;
+      // We'll load this asynchronously
+      return defaultBarChartCode;
     }
     return defaultBarChartCode;
   });
   const [isRunning, setIsRunning] = useState(false);
   const [showEcoreConverter, setShowEcoreConverter] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
 
   // Update code when chart selection changes
   React.useEffect(() => {
+    const loadCode = async () => {
+      if (selectedChart) {
+        setIsLoading(true);
+        try {
+          const savedCode = await HybridStorage.loadCode(selectedChart.id);
+          if (savedCode) {
+            setCode(savedCode);
+          } else {
+            // Set default code based on chart type
+            setCode(getDefaultCodeForChart(selectedChart));
+          }
+        } catch (error) {
+          console.error('Failed to load code:', error);
+          setCode(getDefaultCodeForChart(selectedChart));
+        } finally {
+          setIsLoading(false);
+        }
+      }
+    };
+
+    loadCode();
+  }, [selectedChart]);
+
+  const handleSaveCode = useCallback(async () => {
     if (selectedChart) {
-      const savedCode = codeStorage.getCode(selectedChart.id);
-      if (savedCode) {
-        setCode(savedCode);
-      } else {
-        // Set default code based on chart type
-        setCode(getDefaultCodeForChart(selectedChart));
+      try {
+        await HybridStorage.saveCode(selectedChart.id, selectedChart.name, code);
+        
+        // Show success indicator
+        const button = document.querySelector('[data-save-button]') as HTMLButtonElement;
+        if (button) {
+          const originalText = button.textContent;
+          button.textContent = 'Saved!';
+          button.style.backgroundColor = '#10b981';
+          setTimeout(() => {
+            button.textContent = originalText;
+            button.style.backgroundColor = '';
+          }, 1000);
+        }
+      } catch (error) {
+        console.error('Failed to save code:', error);
+        // Show error indicator
+        const button = document.querySelector('[data-save-button]') as HTMLButtonElement;
+        if (button) {
+          const originalText = button.textContent;
+          button.textContent = 'Error!';
+          button.style.backgroundColor = '#ef4444';
+          setTimeout(() => {
+            button.textContent = originalText;
+            button.style.backgroundColor = '';
+          }, 1000);
+        }
       }
     }
-  }, [selectedChart]);
+  }, [selectedChart, code]);
 
   const getDefaultCodeForChart = (chart: ChartType): string => {
     // Return chart-specific default code or the general default
@@ -110,26 +156,9 @@ const ChartCompiler: React.FC<ChartCompilerProps> = ({ selectedChart }) => {
     if (selectedChart) {
       const defaultCode = getDefaultCodeForChart(selectedChart);
       setCode(defaultCode);
-      codeStorage.deleteCode(selectedChart.id);
+      HybridStorage.deleteCode(selectedChart.id);
     }
   }, [selectedChart]);
-
-  const handleSaveCode = useCallback(() => {
-    if (selectedChart) {
-      codeStorage.saveCode(selectedChart.id, code);
-      // Show a brief success indicator
-      const button = document.querySelector('[data-save-button]') as HTMLButtonElement;
-      if (button) {
-        const originalText = button.textContent;
-        button.textContent = 'Saved!';
-        button.style.backgroundColor = '#10b981';
-        setTimeout(() => {
-          button.textContent = originalText;
-          button.style.backgroundColor = '';
-        }, 1000);
-      }
-    }
-  }, [selectedChart, code]);
 
   const handleDownloadCode = useCallback(() => {
     if (selectedChart) {
@@ -158,7 +187,7 @@ const ChartCompiler: React.FC<ChartCompilerProps> = ({ selectedChart }) => {
         <div className="flex items-center justify-between">
           <div>
             <h2 className="text-xl font-bold text-gray-900">
-              {selectedChart ? selectedChart.name : 'Chart Compiler'}
+              {selectedChart ? selectedChart.name : 'Chart Compiler'} {isLoading && '(Loading...)'}
             </h2>
             <p className="text-sm text-gray-500 mt-1">
               {selectedChart 
@@ -248,7 +277,7 @@ const ChartCompiler: React.FC<ChartCompilerProps> = ({ selectedChart }) => {
               height="100%"
               defaultLanguage="javascript"
               value={code}
-              onChange={(value) => setCode(value || '')}
+              onChange={(value) => !isLoading && setCode(value || '')}
               theme="vs-light"
               options={{
                 minimap: { enabled: false },
@@ -258,7 +287,8 @@ const ChartCompiler: React.FC<ChartCompilerProps> = ({ selectedChart }) => {
                 scrollBeyondLastLine: false,
                 automaticLayout: true,
                 tabSize: 2,
-                wordWrap: 'on'
+                wordWrap: 'on',
+                readOnly: isLoading
               }}
             />
           </div>
